@@ -36,6 +36,26 @@ app.include_router(viva.router, prefix="/viva", tags=["viva"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 
 
+@app.on_event("startup")
+def run_startup_migrations():
+    from app.database import engine
+    from sqlalchemy import text
+    # Safely ensure new score columns exist in PostgreSQL Neon DB or SQLite
+    statements = [
+        "ALTER TABLE viva_questions ADD COLUMN IF NOT EXISTS score FLOAT;",
+        "ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS score FLOAT;",
+        "ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS viva_score FLOAT;",
+        "ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS total_score FLOAT;",
+    ]
+    with engine.begin() as conn:
+        for stmt in statements:
+            try:
+                conn.execute(text(stmt))
+            except Exception as e:
+                # May fail on SQLite without syntax support or if column already exists
+                pass
+
+
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "AI Exam Proctor API"}

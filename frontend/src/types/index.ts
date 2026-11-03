@@ -60,6 +60,9 @@ export interface ExamAttempt {
   status: AttemptStatus;
   integrity_strike_count: number;
   integrity_score?: number;
+  score?: number;
+  viva_score?: number;
+  total_score?: number;
   started_at?: string;
   submitted_at?: string;
   identity_verified: string;
@@ -97,5 +100,6 @@ export interface VivaQuestion {
   student_answer?: string;
   understanding_confidence?: 'low' | 'medium' | 'high';
   ai_reasoning?: string;
+  score?: number;
   answered_at?: string;
 }

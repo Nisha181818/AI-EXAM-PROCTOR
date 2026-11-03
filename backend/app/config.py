@@ -22,8 +22,18 @@ try:
         jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
         jwt_expiry_minutes: int = int(os.getenv("JWT_EXPIRY_MINUTES", "120"))
         
-        # LLM
-        llm_provider: str = os.getenv("LLM_PROVIDER", "openai")
+        # LLM Providers (gemini, groq, openai, anthropic)
+        llm_provider: str = os.getenv("LLM_PROVIDER", "gemini").lower()
+        
+        # Free provider: Google Gemini
+        gemini_api_key: Optional[str] = os.getenv("GEMINI_API_KEY")
+        gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        
+        # Free provider: Groq
+        groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY")
+        groq_model: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        
+        # Commercial providers
         openai_api_key: Optional[str] = os.getenv("OPENAI_API_KEY")
         openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o")
         anthropic_api_key: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
@@ -62,14 +72,22 @@ except ImportError:
             self.jwt_secret = os.getenv("JWT_SECRET", "super-secret-jwt-key-for-ai-exam-proctor-2026-production-ready")
             self.jwt_algorithm = os.getenv("JWT_ALGORITHM", "HS256")
             self.jwt_expiry_minutes = int(os.getenv("JWT_EXPIRY_MINUTES", "120"))
-            self.llm_provider = os.getenv("LLM_PROVIDER", "openai")
+            
+            self.llm_provider = os.getenv("LLM_PROVIDER", "gemini").lower()
+            self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+            self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+            self.groq_api_key = os.getenv("GROQ_API_KEY")
+            self.groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+            
             self.openai_api_key = os.getenv("OPENAI_API_KEY")
             self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")
             self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
             self.anthropic_model = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+            
             self.judge0_url = os.getenv("JUDGE0_URL", "https://judge0-ce.p.rapidapi.com")
             self.judge0_api_key = os.getenv("JUDGE0_API_KEY", os.getenv("JUDGE0_AUTH_TOKEN"))
             self.judge0_api_host = os.getenv("JUDGE0_API_HOST", "judge0-ce.p.rapidapi.com")
+            
             self.face_match_threshold = float(os.getenv("FACE_MATCH_THRESHOLD", "0.6"))
             self.deepface_model = os.getenv("DEEPFACE_MODEL", "ArcFace")
             self.face_engine = os.getenv("FACE_ENGINE", "opencv")

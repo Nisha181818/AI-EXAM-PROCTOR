@@ -11,6 +11,9 @@ class AttemptOut(BaseModel):
     status: AttemptStatus
     integrity_strike_count: int
     integrity_score: Optional[float] = None
+    score: Optional[float] = None
+    viva_score: Optional[float] = None
+    total_score: Optional[float] = None
     started_at: Optional[datetime] = None
     submitted_at: Optional[datetime] = None
     identity_verified: str
@@ -73,6 +76,7 @@ class VivaQuestionOut(BaseModel):
     student_answer: Optional[str] = None
     understanding_confidence: Optional[UnderstandingConfidence] = None
     ai_reasoning: Optional[str] = None
+    score: Optional[float] = None
     answered_at: Optional[datetime] = None
 
     class Config:

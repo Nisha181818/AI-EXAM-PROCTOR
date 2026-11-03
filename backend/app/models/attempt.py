@@ -33,6 +33,9 @@ class ExamAttempt(Base):
     status = Column(SAEnum(AttemptStatus), nullable=False, default=AttemptStatus.not_started)
     integrity_strike_count = Column(Integer, default=0)
     integrity_score = Column(Float, nullable=True)
+    score = Column(Float, nullable=True)
+    viva_score = Column(Float, nullable=True)
+    total_score = Column(Float, nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=True)
     submitted_at = Column(DateTime(timezone=True), nullable=True)
     identity_verified = Column(String(10), default="pending")
@@ -91,6 +94,7 @@ class VivaQuestion(Base):
     student_answer = Column(Text, nullable=True)
     understanding_confidence = Column(SAEnum(UnderstandingConfidence), nullable=True)
     ai_reasoning = Column(Text, nullable=True)
+    score = Column(Float, nullable=True, default=0.0)
     answered_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

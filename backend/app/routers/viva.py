@@ -101,14 +101,46 @@ async def submit_viva_answer(
         answer_in.answer_text,
     )
 
-    conf_str = evaluation.get("confidence", "medium").lower()
+    conf_str = evaluation.get("confidence", "low").lower()
     if conf_str not in ("low", "medium", "high"):
-        conf_str = "medium"
+        conf_str = "low"
+
+    # Strict score calculation
+    eval_score = evaluation.get("score")
+    if eval_score is not None:
+        score = float(eval_score)
+    else:
+        if conf_str == "high":
+            score = 90.0
+        elif conf_str == "medium":
+            score = 50.0
+        else:
+            score = 15.0
 
     vq.student_answer = answer_in.answer_text
     vq.understanding_confidence = UnderstandingConfidence(conf_str)
     vq.ai_reasoning = evaluation.get("reasoning", "")
+    vq.score = round(max(0.0, min(100.0, score)), 2)
     vq.answered_at = datetime.now(timezone.utc)
+
+    # Recalculate attempt viva and total score
+    all_viva = db.query(VivaQuestion).filter(VivaQuestion.attempt_id == attempt.id).all()
+    # include current vq in list
+    viva_scores = [v.score for v in all_viva if v.score is not None or v.id == vq.id]
+    if viva_scores:
+        attempt.viva_score = round(sum(viva_scores) / len(viva_scores), 2)
+
+    all_subs = db.query(Submission).filter(Submission.attempt_id == attempt.id).all()
+    if all_subs:
+        sub_scores = [s.score for s in all_subs if s.score is not None]
+        if sub_scores:
+            sub_avg = sum(sub_scores) / len(sub_scores)
+            attempt.score = round(sub_avg, 2)
+            if attempt.viva_score is not None:
+                attempt.total_score = round((sub_avg * 0.7) + (attempt.viva_score * 0.3), 2)
+            else:
+                attempt.total_score = round(sub_avg, 2)
+
     db.commit()
     db.refresh(vq)
     return vq

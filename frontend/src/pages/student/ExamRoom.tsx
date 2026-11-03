@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { apiClient } from '../../api/client';
@@ -8,7 +8,7 @@ import { useMediaPipe } from '../../hooks/useMediaPipe';
 import { useVAD } from '../../hooks/useVAD';
 import {
   ShieldAlert, Clock, AlertTriangle, Play, CheckCircle2,
-  Lock, Send, Video, Mic, Code2, FileText
+  Lock, Send, Video, VideoOff, Mic, Code2, FileText, UserCheck, Users, UserX, RefreshCw
 } from 'lucide-react';
 
 export const ExamRoom: React.FC = () => {
@@ -31,10 +31,22 @@ export const ExamRoom: React.FC = () => {
   const [isLocked, setIsLocked] = useState(false);
   const [warningBanner, setWarningBanner] = useState<string | null>(null);
 
-  const videoRef = useRef<HTMLVideoElement>(null);
+  // Webcam stream state
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+  const [camError, setCamError] = useState<string | null>(null);
 
-  // Load Exam Data
+  // Attach stream helper
+  const attachStream = useCallback((videoEl: HTMLVideoElement | null, stream: MediaStream | null) => {
+    if (videoEl && stream) {
+      if (videoEl.srcObject !== stream) {
+        videoEl.srcObject = stream;
+      }
+      videoEl.play().catch((err) => console.warn('Webcam play error:', err));
+    }
+  }, []);
+
+  // 1. Load Exam Data
   useEffect(() => {
     const fetchExamData = async () => {
       try {
@@ -60,7 +72,7 @@ export const ExamRoom: React.FC = () => {
         // Set timer based on duration
         setTimeLeft(examRes.data.duration_minutes * 60);
 
-        // Pre-fill answers with template or reference
+        // Pre-fill answers with template
         const initialAnswers: Record<number, string> = {};
         questionsRes.data.forEach((q: Question) => {
           if (q.type === 'coding') {
@@ -77,31 +89,53 @@ export const ExamRoom: React.FC = () => {
     fetchExamData();
   }, [attemptId]);
 
-  // Webcam initialization
-  useEffect(() => {
-    let stream: MediaStream | null = null;
-    const startCam = async () => {
+  // 2. Webcam initialization with fallback
+  const startCamera = async () => {
+    try {
+      setCamError(null);
+      let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        setMediaStream(stream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
-      } catch (err) {
-        console.warn('Webcam or mic error in exam room:', err);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+          audio: true,
+        });
+      } catch (micErr) {
+        console.warn('Microphone permission/hardware issue, falling back to video-only:', micErr);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+        });
       }
-    };
-    startCam();
+
+      setMediaStream(stream);
+      attachStream(videoRef.current, stream);
+    } catch (err: any) {
+      console.error('Webcam initialization error:', err);
+      if (err.name === 'NotAllowedError') {
+        setCamError('Camera permission was denied. Please click the lock icon in your browser address bar and allow camera access.');
+      } else {
+        setCamError('No camera found or camera is currently in use by another app.');
+      }
+    }
+  };
+
+  useEffect(() => {
+    startCamera();
 
     return () => {
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((t) => t.stop());
       }
     };
   }, []);
 
-  // Lockdown & Violation Handler
+  // Ensure stream attaches whenever video element or mediaStream mounts
+  useEffect(() => {
+    if (videoRef.current && mediaStream) {
+      attachStream(videoRef.current, mediaStream);
+    }
+  }, [mediaStream, exam, attachStream]);
+
+  // 3. Lockdown & Violation Handler
   const handleViolation = (type: string, severity: 'soft' | 'hard', desc: string) => {
     if (isLocked) return;
 
@@ -123,13 +157,13 @@ export const ExamRoom: React.FC = () => {
     }, 6000);
   };
 
-  const { enterFullscreen, logViolation } = useLockdown({
+  const { logViolation } = useLockdown({
     attemptId: Number(attemptId),
     onViolation: handleViolation,
     enabled: !isLocked,
   });
 
-  // MediaPipe Face Mesh monitoring
+  // 4. In-Browser Face Detection
   const mediaPipeMetrics = useMediaPipe(
     videoRef,
     (type, severity, desc) => {
@@ -138,7 +172,7 @@ export const ExamRoom: React.FC = () => {
     !isLocked
   );
 
-  // VAD Voice Detection
+  // 5. Voice activity detection
   useVAD(
     mediaStream,
     (desc) => {
@@ -239,7 +273,10 @@ export const ExamRoom: React.FC = () => {
   if (!exam || questions.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-500"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-500 mx-auto mb-3"></div>
+          <p className="text-slate-400 text-sm">Preparing secure examination room...</p>
+        </div>
       </div>
     );
   }
@@ -248,8 +285,18 @@ export const ExamRoom: React.FC = () => {
   const variant = variants.find((v) => v.question_id === currentQ?.id);
   const displayText = variant ? variant.variant_text : currentQ?.base_text;
 
+  // Active face warnings
+  const isNoFace = mediaPipeMetrics.faceCount === 0;
+  const isMultipleFaces = mediaPipeMetrics.faceCount > 1;
+
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col select-none" onCopy={(e) => e.preventDefault()} onPaste={(e) => e.preventDefault()}>
+    <div
+      className="min-h-screen bg-slate-950 flex flex-col select-none"
+      onCopy={(e) => { e.preventDefault(); handleViolation('copy_attempt', 'soft', 'Copying content is disabled'); }}
+      onPaste={(e) => { e.preventDefault(); handleViolation('paste_attempt', 'soft', 'Pasting content is prohibited'); }}
+      onCut={(e) => { e.preventDefault(); handleViolation('cut_attempt', 'soft', 'Cutting content is disabled'); }}
+      onContextMenu={(e) => { e.preventDefault(); handleViolation('right_click_attempt', 'soft', 'Right-click menu is disabled'); }}
+    >
       {/* Top Lockdown App Bar */}
       <header className="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -300,9 +347,23 @@ export const ExamRoom: React.FC = () => {
         </div>
       </header>
 
-      {/* Warning Banner */}
-      {warningBanner && (
-        <div className="bg-rose-900/90 border-b border-rose-700 text-rose-100 px-6 py-2.5 flex items-center justify-center gap-2 text-sm font-semibold animate-pulse">
+      {/* Proctoring Warning Banners */}
+      {isNoFace && !isLocked && (
+        <div className="bg-rose-600 text-white px-6 py-2.5 flex items-center justify-center gap-2 text-sm font-bold animate-pulse shadow-lg">
+          <UserX className="w-5 h-5" />
+          <span>⚠️ WARNING: NO FACE DETECTED! Please stay directly in front of the camera.</span>
+        </div>
+      )}
+
+      {isMultipleFaces && !isLocked && (
+        <div className="bg-rose-600 text-white px-6 py-2.5 flex items-center justify-center gap-2 text-sm font-bold animate-pulse shadow-lg">
+          <Users className="w-5 h-5" />
+          <span>⚠️ WARNING: MULTIPLE FACES DETECTED ({mediaPipeMetrics.faceCount} PEOPLE)! Exam must be taken alone.</span>
+        </div>
+      )}
+
+      {warningBanner && !isNoFace && !isMultipleFaces && (
+        <div className="bg-amber-600 text-white px-6 py-2.5 flex items-center justify-center gap-2 text-sm font-semibold animate-pulse">
           <AlertTriangle className="w-4 h-4" />
           <span>{warningBanner}</span>
         </div>
@@ -317,8 +378,8 @@ export const ExamRoom: React.FC = () => {
             </div>
             <h2 className="text-2xl font-bold text-white mb-2">Exam Locked Pending Review</h2>
             <p className="text-slate-400 text-sm mb-6">
-              You have accumulated 3 integrity strikes (tab-switching, absent face, or unauthorized events).
-              Your exam has been paused and flagged for instructor review. Please contact your proctor or professor.
+              You have accumulated 3 integrity strikes (absent face, multiple people, tab-switching, or clipboard events).
+              Your exam has been paused and submitted for instructor review.
             </p>
             <div className="p-3 bg-slate-950 rounded-lg text-xs font-mono text-slate-400 border border-slate-800">
               Attempt ID: {attemptId} | Status: locked_pending_review
@@ -355,7 +416,7 @@ export const ExamRoom: React.FC = () => {
             <div className="p-6 flex-1 overflow-y-auto">
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs uppercase font-bold tracking-wider text-sky-400 bg-sky-950 border border-sky-800 px-2.5 py-1 rounded">
-                  Question {currentQIndex + 1} of {questions.length} ? {currentQ?.type.toUpperCase()}
+                  Question {currentQIndex + 1} of {questions.length} • {currentQ?.type.toUpperCase()}
                 </span>
                 {variant && (
                   <span className="text-xs text-emerald-400 bg-emerald-950 border border-emerald-800 px-2 py-0.5 rounded">
@@ -364,7 +425,7 @@ export const ExamRoom: React.FC = () => {
                 )}
               </div>
 
-              <div className="text-slate-200 text-base leading-relaxed whitespace-pre-wrap font-sans bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+              <div className="text-slate-200 text-base leading-relaxed whitespace-pre-wrap font-sans bg-slate-900/60 p-4 rounded-xl border border-slate-800 select-none">
                 {displayText}
               </div>
 
@@ -408,12 +469,25 @@ export const ExamRoom: React.FC = () => {
                     theme="vs-dark"
                     value={answers[currentQ.id] || ''}
                     onChange={(val) => handleAnswerChange(val || '')}
+                    onMount={(editor) => {
+                      // Block copy, paste, cut shortcuts inside Monaco Editor
+                      editor.onKeyDown((e) => {
+                        const isCtrl = e.ctrlKey || e.metaKey;
+                        // Monaco KeyCodes: KeyC = 33, KeyV = 52, KeyX = 54
+                        if (isCtrl && ['KeyC', 'KeyV', 'KeyX'].includes(e.code)) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleViolation('clipboard_attempt', 'soft', 'Copying, pasting, and cutting are strictly prohibited inside the editor');
+                        }
+                      });
+                    }}
                     options={{
                       minimap: { enabled: false },
                       fontSize: 14,
                       lineNumbers: 'on',
                       scrollBeyondLastLine: false,
                       automaticLayout: true,
+                      contextmenu: false, // Disables Monaco's right-click context menu
                     }}
                   />
                 </div>
@@ -426,7 +500,7 @@ export const ExamRoom: React.FC = () => {
                     </div>
                     {testResults.map((r, i) => (
                       <div key={i} className={`p-2 rounded mb-1.5 ${r.passed ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800' : 'bg-rose-950/60 text-rose-300 border border-rose-800'}`}>
-                        Test {i + 1}: {r.passed ? 'PASSED ?' : 'FAILED ?'} | Input: {r.input} | Expected: {r.expected} | Actual: {r.actual}
+                        Test {i + 1}: {r.passed ? 'PASSED ✓' : 'FAILED ✗'} | Input: {r.input} | Expected: {r.expected} | Actual: {r.actual}
                       </div>
                     ))}
                   </div>
@@ -438,6 +512,10 @@ export const ExamRoom: React.FC = () => {
                 <textarea
                   value={answers[currentQ.id] || ''}
                   onChange={(e) => handleAnswerChange(e.target.value)}
+                  onCopy={(e) => { e.preventDefault(); handleViolation('copy_attempt', 'soft', 'Copying is prohibited'); }}
+                  onPaste={(e) => { e.preventDefault(); handleViolation('paste_attempt', 'soft', 'Pasting is prohibited'); }}
+                  onCut={(e) => { e.preventDefault(); handleViolation('cut_attempt', 'soft', 'Cutting is prohibited'); }}
+                  onContextMenu={(e) => { e.preventDefault(); handleViolation('right_click_attempt', 'soft', 'Right-click is prohibited'); }}
                   placeholder="Type your structured explanation here according to the rubric..."
                   className="flex-1 w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none font-sans leading-relaxed"
                 />
@@ -448,17 +526,58 @@ export const ExamRoom: React.FC = () => {
       )}
 
       {/* Picture-in-Picture Webcam Thumbnail (Bottom Right) */}
-      <div className="fixed bottom-4 right-4 z-50 bg-slate-900 border-2 border-slate-700 rounded-xl shadow-2xl overflow-hidden w-48 aspect-video">
+      <div className={`fixed bottom-4 right-4 z-50 bg-slate-900 border-2 rounded-xl shadow-2xl overflow-hidden w-52 aspect-video transition-all ${
+        isNoFace || isMultipleFaces ? 'border-rose-500 ring-4 ring-rose-500/30' : 'border-slate-700'
+      }`}>
         <video
-          ref={videoRef}
+          ref={(el) => {
+            videoRef.current = el;
+            if (el && mediaStream) {
+              attachStream(el, mediaStream);
+            }
+          }}
+          autoPlay
           playsInline
           muted
           className="w-full h-full object-cover"
         />
+
+        {/* Live Proctor Indicator */}
         <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-slate-950/80 px-2 py-0.5 rounded text-[10px] font-semibold text-emerald-400">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></div>
           <span>LIVE PROCTOR</span>
         </div>
+
+        {/* Face Status Pill at Bottom of PIP */}
+        <div className="absolute bottom-1.5 inset-x-1.5 flex items-center justify-between bg-slate-950/90 px-2 py-0.5 rounded text-[10px]">
+          {isNoFace ? (
+            <span className="text-rose-400 font-bold flex items-center gap-1">
+              <UserX className="w-3 h-3" /> NO FACE DETECTED
+            </span>
+          ) : isMultipleFaces ? (
+            <span className="text-rose-400 font-bold flex items-center gap-1">
+              <Users className="w-3 h-3" /> {mediaPipeMetrics.faceCount} FACES DETECTED
+            </span>
+          ) : (
+            <span className="text-emerald-400 font-semibold flex items-center gap-1">
+              <UserCheck className="w-3 h-3" /> Face Verified
+            </span>
+          )}
+        </div>
+
+        {/* Camera Permission / Hardware Error Overlay */}
+        {camError && (
+          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-3 text-center z-10">
+            <VideoOff className="w-6 h-6 text-rose-400 mb-1" />
+            <p className="text-[10px] text-rose-300 leading-tight mb-2">{camError}</p>
+            <button
+              onClick={startCamera}
+              className="px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[10px] font-bold flex items-center gap-1 transition"
+            >
+              <RefreshCw className="w-3 h-3" /> Retry Cam
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
