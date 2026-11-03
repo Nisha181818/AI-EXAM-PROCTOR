@@ -25,12 +25,15 @@ def start_exam(
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
+    # Auto-enroll student into course if not already enrolled so they are never blocked
     enrollment = db.query(Enrollment).filter(
         Enrollment.student_id == current_user.id,
         Enrollment.course_id == exam.course_id
     ).first()
     if not enrollment:
-        raise HTTPException(status_code=403, detail="Not enrolled in this course")
+        enrollment = Enrollment(student_id=current_user.id, course_id=exam.course_id)
+        db.add(enrollment)
+        db.commit()
 
     existing = db.query(ExamAttempt).filter(
         ExamAttempt.exam_id == exam_id,

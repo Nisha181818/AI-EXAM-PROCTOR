@@ -130,7 +130,7 @@ export const StudentDashboard: React.FC = () => {
           </div>
         ) : exams.length === 0 ? (
           <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 text-center text-slate-400">
-            No exams currently scheduled for your enrolled courses.
+            No active exams currently scheduled. When your instructor creates an exam, it will appear here automatically.
           </div>
         ) : (
           <div className="grid md:grid-cols-2 gap-5">

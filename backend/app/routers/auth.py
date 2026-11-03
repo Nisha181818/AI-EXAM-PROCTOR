@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User, UserRole
+from app.models.course import Course, Enrollment
 from app.schemas.user import UserCreate, UserLogin, UserOut, TokenResponse, EnrollmentPhotoResponse
 from app.services.auth_utils import hash_password, verify_password, create_access_token, get_current_user
 from app.config import settings
@@ -25,6 +26,17 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # Automatically enroll new students in all existing courses so exams are immediately visible
+    if user.role == UserRole.student:
+        try:
+            courses = db.query(Course).all()
+            for c in courses:
+                db.add(Enrollment(student_id=user.id, course_id=c.id))
+            db.commit()
+        except Exception as e:
+            print(f"Auto-enrollment on register note: {e}")
+
     return user
 
 

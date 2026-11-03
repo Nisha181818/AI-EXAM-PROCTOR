@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.course import Course, Enrollment
 from app.schemas.course import CourseCreate, CourseOut, EnrollmentCreate, EnrollmentOut
 from app.services.auth_utils import get_current_user, require_teacher
@@ -20,6 +20,16 @@ def create_course(
     db.add(course)
     db.commit()
     db.refresh(course)
+
+    # Auto-enroll all existing students in the new course
+    try:
+        students = db.query(User).filter(User.role == UserRole.student).all()
+        for s in students:
+            db.add(Enrollment(student_id=s.id, course_id=course.id))
+        db.commit()
+    except Exception as e:
+        print(f"Auto-enrollment on course create: {e}")
+
     return course
 
 
@@ -31,10 +41,8 @@ def list_courses(
     if current_user.role.value == "teacher":
         return db.query(Course).filter(Course.teacher_id == current_user.id).all()
     else:
-        enrolled_course_ids = [
-            e.course_id for e in db.query(Enrollment).filter(Enrollment.student_id == current_user.id).all()
-        ]
-        return db.query(Course).filter(Course.id.in_(enrolled_course_ids)).all()
+        # Students see all courses so course labels are available for all active exams
+        return db.query(Course).all()
 
 
 @router.get("/{course_id}", response_model=CourseOut)

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.course import Course, Enrollment
 from app.models.exam import Exam
 from app.schemas.exam import ExamCreate, ExamOut
@@ -27,6 +27,21 @@ def create_exam(
     db.add(exam)
     db.commit()
     db.refresh(exam)
+
+    # Auto-enroll all registered students into this course so exams are immediately accessible
+    try:
+        students = db.query(User).filter(User.role == UserRole.student).all()
+        for s in students:
+            existing = db.query(Enrollment).filter(
+                Enrollment.student_id == s.id,
+                Enrollment.course_id == course.id
+            ).first()
+            if not existing:
+                db.add(Enrollment(student_id=s.id, course_id=course.id))
+        db.commit()
+    except Exception as e:
+        print(f"Auto-enrollment notice on create_exam: {e}")
+
     return exam
 
 
@@ -37,12 +52,25 @@ def list_exams(
 ):
     if current_user.role.value == "teacher":
         teacher_course_ids = [c.id for c in db.query(Course).filter(Course.teacher_id == current_user.id).all()]
-        return db.query(Exam).filter(Exam.course_id.in_(teacher_course_ids)).all()
+        return db.query(Exam).filter(Exam.course_id.in_(teacher_course_ids)).order_by(Exam.created_at.desc()).all()
     else:
-        enrolled_course_ids = [
-            e.course_id for e in db.query(Enrollment).filter(Enrollment.student_id == current_user.id).all()
-        ]
-        return db.query(Exam).filter(Exam.course_id.in_(enrolled_course_ids)).all()
+        # Every registered student automatically sees all active exams
+        all_exams = db.query(Exam).order_by(Exam.created_at.desc()).all()
+
+        # Ensure student is auto-enrolled in all courses with exams
+        try:
+            for exam in all_exams:
+                existing = db.query(Enrollment).filter(
+                    Enrollment.student_id == current_user.id,
+                    Enrollment.course_id == exam.course_id
+                ).first()
+                if not existing:
+                    db.add(Enrollment(student_id=current_user.id, course_id=exam.course_id))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+        return all_exams
 
 
 @router.get("/{exam_id}", response_model=ExamOut)
