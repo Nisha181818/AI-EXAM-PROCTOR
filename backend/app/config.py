@@ -34,9 +34,11 @@ try:
         judge0_api_key: Optional[str] = os.getenv("JUDGE0_API_KEY", os.getenv("JUDGE0_AUTH_TOKEN"))
         judge0_api_host: str = os.getenv("JUDGE0_API_HOST", "judge0-ce.p.rapidapi.com")
         
-        # Face recognition
+        # Face recognition (low-memory friendly by default)
         face_match_threshold: float = float(os.getenv("FACE_MATCH_THRESHOLD", "0.6"))
         deepface_model: str = os.getenv("DEEPFACE_MODEL", "ArcFace")
+        face_engine: str = os.getenv("FACE_ENGINE", "opencv")  # 'opencv', 'lightweight', or 'deepface'
+        use_deepface: bool = os.getenv("USE_DEEPFACE", "false").lower() in ("true", "1", "yes")
         upload_dir: str = os.getenv("UPLOAD_DIR", str(Path(__file__).resolve().parent.parent / "uploads"))
         
         # CORS
@@ -70,6 +72,8 @@ except ImportError:
             self.judge0_api_host = os.getenv("JUDGE0_API_HOST", "judge0-ce.p.rapidapi.com")
             self.face_match_threshold = float(os.getenv("FACE_MATCH_THRESHOLD", "0.6"))
             self.deepface_model = os.getenv("DEEPFACE_MODEL", "ArcFace")
+            self.face_engine = os.getenv("FACE_ENGINE", "opencv")
+            self.use_deepface = os.getenv("USE_DEEPFACE", "false").lower() in ("true", "1", "yes")
             self.upload_dir = os.getenv("UPLOAD_DIR", str(Path(__file__).resolve().parent.parent / "uploads"))
             self.cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173,http://localhost:80")
 
